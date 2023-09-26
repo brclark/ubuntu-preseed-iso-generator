@@ -18,14 +18,14 @@ ubiquity partman-auto/expert_recipe string                    \
                       label { boot }                          \
                       format{ }                               \
               .                                               \
-              43930 43930 43930  btrfs                          \
+              40008 40008 43930  ext4                          \
                       method{ format } format{ }              \
-                      use_filesystem{ } filesystem{ btrfs }    \
+                      use_filesystem{ } filesystem{ ext4 }    \
                       label { system }                        \
                       mountpoint{ / }                         \
               .                                               \
-              10240 100000 1000000 xfs                             \
-                      method{ format } format{ }              \
+              10240 100000 1000000 xfs                         \
+                      method{ format }  format{ }             \
                       use_filesystem{ } filesystem{ xfs }    \
                       label { home }                         \
                       mountpoint{ /home }                     \
