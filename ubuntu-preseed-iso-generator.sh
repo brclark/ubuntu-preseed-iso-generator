@@ -35,7 +35,7 @@ Available options:
 
 -h, --help          Print this help and exit
 -v, --verbose       Print script debug info
--p, --preseed       Path to preseed configuration file.
+-p, --preseed       Path to preseed configuration file. Add a custom Grub message after a colon :
 -k, --no-verify     Disable GPG verification of the source ISO file. By default SHA256SUMS-$today and
                     SHA256SUMS-$today.gpg in ${script_dir} will be used to verify the authenticity and integrity
                     of the source ISO file. If they are not present the latest daily SHA256SUMS will be
@@ -50,9 +50,16 @@ EOF
         exit
 }
 
+# SYNOPSIS
+#  quoteSubst <text>
+quoteSubst() {
+  IFS= read -d '' -r < <(sed -e ':a' -e '$!{N;ba' -e '}' -e 's/[&/\]/\\&/g; s/\n/\\&/g; s/\t/\\&/g' <<<"$1")
+  printf %s "${REPLY%$'\n'}"
+}
+
 function parse_params() {
         # default values of variables set from params
-        preseed_file=""
+	preseed_file=()
         source_iso="${script_dir}/ubuntu-original-$today.iso"
         destination_iso="${script_dir}/ubuntu-preseed-$today.iso"
         gpg_verify=1
@@ -63,7 +70,7 @@ function parse_params() {
                 -v | --verbose) set -x ;;
                 -k | --no-verify) gpg_verify=0 ;;
                 -p | --preseed)
-                        preseed_file="${2-}"
+			preseed_file+=("${2-}")
                         shift
                         ;;
                 -s | --source)
@@ -83,8 +90,11 @@ function parse_params() {
         log "👶 Starting up..."
 
         # check required params and arguments
-        [[ -z "${preseed_file}" ]] && die "💥 preseed file was not specified."
-        [[ ! -f "$preseed_file" ]] && die "💥 preseed file could not be found."
+        [[ -z "${preseed_file[*]}" ]] && die "💥 preseed file was not specified."
+	for filename_grub_combo in "${preseed_file[@]}"; do
+		filename="${filename_grub_combo%%:*}"
+		[[ ! -f "$filename" ]] && die "💥 preseed file could not be found."
+	done
 
         if [ "${source_iso}" != "${script_dir}/ubuntu-original-$today.iso" ]; then
                 [[ ! -f "${source_iso}" ]] && die "💥 Source ISO file could not be found."
@@ -174,9 +184,34 @@ log "👍 Extracted to $tmpdir"
 
 log "🧩 Adding preseed parameters to kernel command line..."
 
+grub_addition=""
+preseed_index=0
+for filename_grub_combo in "${preseed_file[@]}"; do
+	if [[ $filename_grub_combo == *:* ]]; then
+		filename="${filename_grub_combo%%:*}"
+		grub_msg="${filename_grub_combo#*:}"
+	else
+		filename=$filename_grub_combo
+		grub_msg="Custom Ubuntu ${preseed_index}"
+	fi
+
+	grub_addition+="\nmenuentry \"${grub_msg}\" {\n	set gfxpayload=keep\n	linux	/casper/vmlinuz	file=/cdrom/preseed/custom${preseed_index}.seed auto=true priority=critical boot=casper automatic-ubiquity quiet splash noprompt noshell ---\n	initrd	/casper/initrd\n}"
+	preseed_index+=1
+done
+
+# TODO: Add grub_addition to grub.cfg menu entry. Be sure to insert this string before another 'menuentry'
+
 # These are for UEFI mode
-sed -i -e 's,file=/cdrom/preseed/ubuntu.seed maybe-ubiquity quiet splash,file=/cdrom/preseed/custom.seed auto=true priority=critical boot=casper automatic-ubiquity quiet splash noprompt noshell,g' "$tmpdir/boot/grub/grub.cfg"
-sed -i -e 's,file=/cdrom/preseed/ubuntu.seed maybe-ubiquity iso-scan/filename=${iso_path} quiet splash,file=/cdrom/preseed/custom.seed auto=true priority=critical boot=casper automatic-ubiquity quiet splash noprompt noshell,g' "$tmpdir/boot/grub/loopback.cfg"
+# Important one is grub.cfg
+echo "$(quoteSubst "$grub_addition")"
+pattern="menuentry"
+sed -i -e ':a' -e "s/$pattern/i\ $(quoteSubst "$grub_addition")" "$tmpdir/boot/grub/grub.cfg"
+echo "here2"
+sed -i 's,file=/cdrom/preseed/ubuntu.seed maybe-ubiquity iso-scan/filename=${iso_path} quiet splash,file=/cdrom/preseed/custom.seed auto=true priority=critical boot=casper automatic-ubiquity quiet splash noprompt noshell,g' "$tmpdir/boot/grub/loopback.cfg"
+echo "here3"
+
+log "$grub_addition"
+cat "$tmpdir/boot/grub/grub.cfg"
 
 # This one is used for BIOS mode
 cat <<EOF > "$tmpdir/isolinux/txt.cfg"
@@ -190,8 +225,19 @@ EOF
 log "👍 Added parameters to UEFI and BIOS kernel command lines."
 
 log "🧩 Adding preseed configuration file..."
-cp "$preseed_file" "$tmpdir/preseed/custom.seed"
+for filename_grub_combo in "${preseed_file[@]}"; do
+	if [[ $filename_grub_combo == *:* ]]; then
+		filename="${filename_grub_combo%%:*}"
+	else
+		filename=$filename_grub_combo
+	fi
+	cp "$filename" "$tmpdir/preseed/custom.seed"
+done
 log "👍 Added preseed file"
+
+ls "${tmpdir}/preseed/"
+
+die "Exit early"
 
 log "👷 Updating $tmpdir/md5sum.txt with hashes of modified files..."
 # Using the full list of hashes causes long delays at boot.
