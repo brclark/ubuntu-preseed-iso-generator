@@ -11,7 +11,7 @@ ubiquity partman/alignment string "optimal"
 
 ubiquity partman-auto/expert_recipe string                    \
         boot-root ::                                          \
-              524 524 524 fat16                               \
+              512 512 512 fat16                               \
                       $primary{ }                             \
                       $iflabel{ gpt }                         \
                       method{ efi }                           \
@@ -24,14 +24,14 @@ ubiquity partman-auto/expert_recipe string                    \
                       label { system }                        \
                       mountpoint{ / }                         \
               .                                               \
-              10240 100000 1000000 xfs                         \
-                      method{ keep }                          \
-                      use_filesystem{ } filesystem{ xfs }    \
+              4096 4096 100% linux-swap                    \
+                      method{ swap } format{ }                \
+              .                                               \
+              10240 100000 1000000  ext4                       \
+                      method{ format } format{ }             \
+                      use_filesystem{ } filesystem{ ext4 }    \
                       label { home }                         \
                       mountpoint{ /home }                     \
-              .                                               \
-              4096 4096 100% linux-swap                       \
-                      method{ swap } format{ }                \
               .
 
 # This makes partman automatically partition without confirmation
