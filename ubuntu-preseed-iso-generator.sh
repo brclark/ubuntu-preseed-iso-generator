@@ -3,6 +3,11 @@ set -Eeuo pipefail
 
 function cleanup() {
         trap - SIGINT SIGTERM ERR EXIT
+	if [ -n "${fsdir+x}" ]; then
+		for x in dev/pts proc sys dev run ; do
+			umount $fsdir/$x
+		done
+	fi
         if [ -n "${tmpdir+x}" ]; then
                 rm -rf "$tmpdir"
                 log "🚽 Deleted temporary working directory $tmpdir"
@@ -56,6 +61,7 @@ function parse_params() {
         source_iso="${script_dir}/ubuntu-original-$today.iso"
         destination_iso="${script_dir}/ubuntu-preseed-$today.iso"
         gpg_verify=1
+	target_script=""
 
         while :; do
                 case "${1-}" in
@@ -74,6 +80,10 @@ function parse_params() {
                         destination_iso="${2-}"
                         shift
                         ;;
+		-t | --target-script)
+			target_script="${2-}"
+			shift
+			;;
                 -?*) die "Unknown option: $1" ;;
                 *) break ;;
                 esac
@@ -143,7 +153,7 @@ if [ ${gpg_verify} -eq 1 ]; then
                 gpg -q --no-default-keyring --keyring "${script_dir}/${ubuntu_gpg_key_id}.keyring" --keyserver "hkp://keyserver.ubuntu.com" --recv-keys "${ubuntu_gpg_key_id}"
                 log "👍 Downloaded and saved to ${script_dir}/${ubuntu_gpg_key_id}.keyring"
         else
-                log "☑️ Using existing Ubuntu signing key saved in ${script_dir}/${ubuntu_gpg_key_id}.keyring"
+                log "☑️  Using existing Ubuntu signing key saved in ${script_dir}/${ubuntu_gpg_key_id}.keyring"
         fi
 
         log "🔐 Verifying ${source_iso} integrity and authenticity..."
@@ -171,6 +181,39 @@ xorriso -osirrox on -indev "${source_iso}" -extract / "$tmpdir" &>/dev/null
 chmod -R u+w "$tmpdir"
 rm -rf "$tmpdir/"'[BOOT]'
 log "👍 Extracted to $tmpdir"
+
+if [ ! -z "${target_script}" ]; then
+        [[ ! -f "$target_script" ]] && die "💥 target script file could not be found."
+
+	# Attempt to chroot into env to install a dependency
+	log "🔧  Unsquashing fs-root"
+	unsquashfs -n -d "$tmpdir/squashfs-root" "$tmpdir/casper/filesystem.squashfs" &>/dev/null
+	fsdir="$tmpdir/squashfs-root"
+
+	for x in dev proc sys dev/pts run ; do
+		mount --bind /$x $fsdir/$x
+	done
+
+	#chroot "$fsdir" /bin/bash -c "install_custom_deps"
+	cp "$target_script" "$fsdir"
+	chroot "$fsdir" /bin/bash "$target_script"
+
+	for x in dev/pts proc sys dev run ; do
+		umount $fsdir/$x
+	done
+
+	log "☑️  Installed dependencies to fs"
+	rm "$fsdir/$target_script"
+
+	log "📦 Squashing fs again.."
+	mksquashfs "$fsdir" "$tmpdir/casper/filesystem.squashfs" \
+		-noappend -no-duplicates -no-recovery
+	printf $(du -sx --block-size=1 "$fsdir" | cut -f1) > "$tmpdir/casper/filesystem.size"
+
+	rm -rf "$fsdir"
+fi
+#End
+
 
 log "🧩 Adding preseed parameters to kernel command line..."
 

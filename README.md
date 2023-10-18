@@ -30,6 +30,7 @@ Available options:
 -h, --help          Print this help and exit
 -v, --verbose       Print script debug info
 -p, --preseed       Path to preseed configuration file.
+-t, --target-script Path to bash script to execute within ISO filesystem.
 -k, --no-verify     Disable GPG verification of the source ISO file. By default SHA256SUMS-<current date> and
                     SHA256SUMS-<current date>.gpg in <script directory> will be used to verify the authenticity and integrity
                     of the source ISO file. If they are not present the latest daily SHA256SUMS will be
